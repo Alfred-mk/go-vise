@@ -118,6 +118,8 @@ func (ir *interactiveResource) accept_terms(ctx context.Context, sym string, inp
 		}
 
 		state.PublicKey = accountResp.Result.PublicKey
+		state.TrackingId = accountResp.Result.TrackingId
+		state.CustodialId = accountResp.Result.CustodialId.String()
 
 		state.CurrentState = StateAccountCreated
 
