@@ -1,0 +1,6 @@
+LOAD accept_account 8
+LOAD accept_terms 0
+HALT
+RELOAD accept_account
+CATCH . 8 0
+MOVE terms

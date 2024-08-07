@@ -1,0 +1,4 @@
+LOAD check_identifier 0
+MAP check_identifier
+HALT
+MOUT abort 0

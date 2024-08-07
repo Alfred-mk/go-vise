@@ -1,0 +1,4 @@
+HALT
+RELOAD accept_terms
+CATCH . 8 0
+MOVE profile

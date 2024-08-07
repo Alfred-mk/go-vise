@@ -1,5 +1,8 @@
 examples/**/*.bin
 examples/**/*.txt
+dev/**/*.bin
+dev/**/*.txt
+dev/**/*.json
 **/.state
 build/
 doc/texinfo/**/*html
