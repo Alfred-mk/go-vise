@@ -27,8 +27,8 @@ longmenu:
 intro:
 	make -C examples/intro
 
-interactive:
-	make -C examples/interactive
+account:
+	make -C examples/account
 
 doc:
 	make -C doc

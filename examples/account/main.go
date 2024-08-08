@@ -49,11 +49,11 @@ type UserState struct {
 
 var (
 	baseDir     = testdataloader.GetBasePath()
-	scriptDir   = path.Join(baseDir, "examples", "interactive")
+	scriptDir   = path.Join(baseDir, "examples", "account")
 	emptyResult = resource.Result{}
 )
 
-type interactiveResource struct {
+type accountResource struct {
 	*resource.FsResource
 	st *state.State
 }
@@ -88,7 +88,7 @@ func loadUserState() (*UserState, error) {
 	return &state, nil
 }
 
-func (ir *interactiveResource) accept_account(ctx context.Context, sym string, input []byte) (resource.Result, error) {
+func (ir *accountResource) accept_account(ctx context.Context, sym string, input []byte) (resource.Result, error) {
 	var err error
 	state := &UserState{CurrentState: StateNone}
 
@@ -99,7 +99,7 @@ func (ir *interactiveResource) accept_account(ctx context.Context, sym string, i
 	return emptyResult, err
 }
 
-func (ir *interactiveResource) accept_terms(ctx context.Context, sym string, input []byte) (resource.Result, error) {
+func (ir *accountResource) accept_terms(ctx context.Context, sym string, input []byte) (resource.Result, error) {
 	var err error
 	state := &UserState{CurrentState: StateAccountAccepted}
 
@@ -125,7 +125,7 @@ func (ir *interactiveResource) accept_terms(ctx context.Context, sym string, inp
 	return emptyResult, err
 }
 
-func (ir *interactiveResource) checkIdentifier(ctx context.Context, sym string, input []byte) (resource.Result, error) {
+func (ir *accountResource) checkIdentifier(ctx context.Context, sym string, input []byte) (resource.Result, error) {
 	state, err := loadUserState()
 	if err != nil {
 		return emptyResult, err
@@ -171,7 +171,7 @@ func main() {
 
 	st := state.NewState(1)
 	rsf := resource.NewFsResource(scriptDir)
-	rs := interactiveResource{rsf, &st}
+	rs := accountResource{rsf, &st}
 	rs.AddLocalFunc("accept_account", rs.accept_account)
 	rs.AddLocalFunc("accept_terms", rs.accept_terms)
 	rs.AddLocalFunc("check_identifier", rs.checkIdentifier)
