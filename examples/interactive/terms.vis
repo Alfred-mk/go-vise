@@ -1,4 +1,6 @@
+MOUT yes 0
+MOUT no 1
+LOAD accept_account 0
 HALT
-RELOAD accept_terms
-CATCH . 8 0
-MOVE profile
+INCMP profile 0
+INCMP abort 1

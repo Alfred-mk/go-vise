@@ -28,7 +28,7 @@ intro:
 	make -C examples/intro
 
 interactive:
-	make -C dev/interactive
+	make -C examples/interactive
 
 doc:
 	make -C doc

@@ -1,3 +1,4 @@
+LOAD accept_terms 0
 LOAD check_identifier 0
 MAP check_identifier
 HALT

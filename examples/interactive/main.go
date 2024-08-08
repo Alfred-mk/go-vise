@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net/http"
 	"os"
@@ -48,7 +49,7 @@ type UserState struct {
 
 var (
 	baseDir     = testdataloader.GetBasePath()
-	scriptDir   = path.Join(baseDir, "dev", "interactive")
+	scriptDir   = path.Join(baseDir, "examples", "interactive")
 	emptyResult = resource.Result{}
 )
 
@@ -73,7 +74,7 @@ func saveUserState(state *UserState) error {
 
 func loadUserState() (*UserState, error) {
 	fp := path.Join(scriptDir, "userstate.json")
-	data, err := ioutil.ReadFile(fp)
+	data, err := os.ReadFile(fp)
 	if err != nil {
 		return nil, err
 	}
@@ -90,43 +91,36 @@ func loadUserState() (*UserState, error) {
 func (ir *interactiveResource) accept_account(ctx context.Context, sym string, input []byte) (resource.Result, error) {
 	var err error
 	state := &UserState{CurrentState: StateNone}
-	if string(input) == "accept" {
-		state.CurrentState = StateAccountAccepted
-		ir.st.SetFlag(USERFLAG_HASACCEPTED)
 
-		saveUserState(state)
-	}
-	return resource.Result{
-		Content: "",
-	}, err
+	state.CurrentState = StateAccountAccepted
+
+	saveUserState(state)
+
+	return emptyResult, err
 }
 
 func (ir *interactiveResource) accept_terms(ctx context.Context, sym string, input []byte) (resource.Result, error) {
 	var err error
-	state := &UserState{CurrentState: StateNone}
-	ir.st.ResetFlag(USERFLAG_HASACCEPTED)
-	if string(input) == "accept" {
-		state.CurrentState = StateTermsAccepted
-		ir.st.SetFlag(USERFLAG_HASACCEPTED)
+	state := &UserState{CurrentState: StateAccountAccepted}
 
-		fmt.Println("Account creation is in progress, please wait...")
+	state.CurrentState = StateTermsAccepted
 
-		accountResp, err := createAccount()
-		if err != nil {
-			fmt.Println("Failed to create account:", err)
-			return emptyResult, err
-		}
+	fmt.Println("Account creation is in progress, please wait...")
 
-		state.PublicKey = accountResp.Result.PublicKey
-		state.TrackingId = accountResp.Result.TrackingId
-		state.CustodialId = accountResp.Result.CustodialId.String()
+	accountResp, err := createAccount()
 
-		state.CurrentState = StateAccountCreated
-
-		saveUserState(state)
-
+	if err != nil {
+		fmt.Println("Failed to create account:", err)
 		return emptyResult, err
 	}
+
+	state.PublicKey = accountResp.Result.PublicKey
+	state.TrackingId = accountResp.Result.TrackingId
+	state.CustodialId = accountResp.Result.CustodialId.String()
+
+	state.CurrentState = StateAccountCreated
+
+	saveUserState(state)
 
 	return emptyResult, err
 }
@@ -150,7 +144,7 @@ func createAccount() (*accountResponse, error) {
 	}
 	defer resp.Body.Close()
 
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
