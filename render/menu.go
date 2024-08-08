@@ -195,7 +195,7 @@ func(m *Menu) Render(ctx context.Context, idx uint16) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		r += fmt.Sprintf("%s:%s", choice, title)
+		r += fmt.Sprintf("%s:%s", title, choice)
 	}
 	if m.keep {
 		m.menu = menuCopy
