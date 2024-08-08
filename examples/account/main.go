@@ -19,7 +19,7 @@ import (
 )
 
 const (
-	USERFLAG_HASACCEPTED = state.FLAG_USERSTART
+	USERFLAG_HASSESSION = state.FLAG_USERSTART
 )
 
 const (
@@ -137,6 +137,33 @@ func (ir *accountResource) checkIdentifier(ctx context.Context, sym string, inpu
 	return r, nil
 }
 
+func (ir *accountResource) check_session(ctx context.Context, sym string, input []byte) (resource.Result, error) {
+	var err error
+	sessionFile, err := sessionExists(string(input))
+	if err != nil {
+		return emptyResult, err
+	}
+
+	if sessionFile {
+		ir.st.SetFlag(USERFLAG_HASSESSION)
+	}
+
+	return resource.Result{
+		Content: "",
+	}, err
+}
+
+func sessionExists(phoneNumber string) (bool, error) {
+	filePath := path.Join(scriptDir, phoneNumber+"_userstate.json")
+	if _, err := os.Stat(filePath); err == nil {
+		return true, nil
+	} else if os.IsNotExist(err) {
+		return false, nil
+	} else {
+		return false, err
+	}
+}
+
 func createAccount() (*accountResponse, error) {
 	resp, err := http.Post("https://custodial.sarafu.africa/api/account/create", "application/json", nil)
 	if err != nil {
@@ -172,6 +199,7 @@ func main() {
 	st := state.NewState(1)
 	rsf := resource.NewFsResource(scriptDir)
 	rs := accountResource{rsf, &st}
+	rs.AddLocalFunc("check_session", rs.check_session)
 	rs.AddLocalFunc("accept_account", rs.accept_account)
 	rs.AddLocalFunc("accept_terms", rs.accept_terms)
 	rs.AddLocalFunc("check_identifier", rs.checkIdentifier)

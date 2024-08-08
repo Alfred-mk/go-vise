@@ -1,3 +1,6 @@
+LOAD check_session 0
+MAP check_session
+CATCH phone_number 8 0
 MOUT yes 0
 MOUT no 1
 HALT
