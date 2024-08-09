@@ -1,6 +1,6 @@
 MOUT yes 0
 MOUT no 1
-LOAD accept_account 0
 HALT
-INCMP profile 0
+LOAD accept_account 0
+INCMP account_creation 0
 INCMP abort 1

@@ -1,5 +1,4 @@
-MOUT yes 0
-MOUT no 1
 HALT
-INCMP terms 0
-INCMP abort 1
+LOAD check_session 8
+CATCH accept_account 8 0
+MOVE account_creation

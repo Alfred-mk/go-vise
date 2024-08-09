@@ -6,7 +6,9 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"io/ioutil"
+	"time"
+
+	// "log"
 	"net/http"
 	"os"
 	"path"
@@ -18,11 +20,15 @@ import (
 	testdataloader "github.com/peteole/testdata-loader"
 )
 
-const (
-	USERFLAG_HASACCEPTED = state.FLAG_USERSTART
-)
+var globalSessionId string
 
 const (
+	USERFLAG_HASACCEPTED    = state.FLAG_USERSTART
+	USERFLAG_HASSESSION     = state.FLAG_USERSTART
+	USERFLAG_ACCOUNTSUCCESS = state.FLAG_USERSTART
+	createAccountURL        = "https://custodial.sarafu.africa/api/account/create"
+	trackStatusURL          = "https://custodial.sarafu.africa/api/track/"
+
 	StateNone = iota
 	StateAccountAccepted
 	StateTermsOffered
@@ -40,11 +46,26 @@ type accountResponse struct {
 	} `json:"result"`
 }
 
+type trackStatusResponse struct {
+	Ok     bool `json:"ok"`
+	Result struct {
+		Transaction struct {
+			CreatedAt     time.Time   `json:"createdAt"`
+			Status        string      `json:"status"`
+			TransferValue json.Number `json:"transferValue"`
+			TxHash        string      `json:"txHash"`
+			TxType        string      `json:"txType"`
+		}
+	} `json:"result"`
+}
+
 type UserState struct {
-	CurrentState int
-	PublicKey    string
-	CustodialId  string
-	TrackingId   string
+	PhoneNumber   string
+	CurrentState  int
+	PublicKey     string
+	CustodialId   string
+	TrackingId    string
+	AccountStatus string
 }
 
 var (
@@ -58,22 +79,22 @@ type accountResource struct {
 	st *state.State
 }
 
-func saveUserState(state *UserState) error {
+func saveUserState(phoneNumber string, state *UserState) error {
 	data, err := json.Marshal(state)
 	if err != nil {
 		return err
 	}
 
-	fp := path.Join(scriptDir, "userstate.json")
-	err = ioutil.WriteFile(fp, data, 0600)
+	fp := path.Join(scriptDir, phoneNumber+"_userstate.json")
+	err = os.WriteFile(fp, data, 0600)
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
-func loadUserState() (*UserState, error) {
-	fp := path.Join(scriptDir, "userstate.json")
+func loadUserState(phoneNumber string) (*UserState, error) {
+	fp := path.Join(scriptDir, phoneNumber+"_userstate.json")
 	data, err := os.ReadFile(fp)
 	if err != nil {
 		return nil, err
@@ -88,24 +109,109 @@ func loadUserState() (*UserState, error) {
 	return &state, nil
 }
 
+func updateState(phoneNumber string, updates map[string]interface{}) error {
+	userState, err := loadUserState(phoneNumber)
+	if err != nil {
+		return err
+	}
+
+	for key, value := range updates {
+		switch key {
+		case "PhoneNumber":
+			if v, ok := value.(string); ok {
+				userState.PhoneNumber = v
+			}
+		case "CurrentState":
+			if v, ok := value.(int); ok {
+				userState.CurrentState = v
+			}
+		case "PublicKey":
+			if v, ok := value.(string); ok {
+				userState.PublicKey = v
+			}
+		case "CustodialId":
+			if v, ok := value.(string); ok {
+				userState.CustodialId = v
+			}
+		case "TrackingId":
+			if v, ok := value.(string); ok {
+				userState.TrackingId = v
+			}
+		case "AccountStatus":
+			if v, ok := value.(string); ok {
+				userState.AccountStatus = v
+			}
+		
+		default:
+			return fmt.Errorf("unknown field: %s", key)
+		}
+	}
+
+	return saveUserState(phoneNumber, userState)
+}
+
+func (ir *accountResource) check_session(ctx context.Context, sym string, input []byte) (resource.Result, error) {
+	var err error
+	state := &UserState{}
+	var phoneNumber = string(input)
+
+    globalSessionId = phoneNumber
+	
+	sessionFile, err := sessionExists(phoneNumber)
+	if err != nil {
+		return emptyResult, err
+	}
+
+	state.CurrentState = StateNone
+	state.PhoneNumber = phoneNumber
+
+	if sessionFile {
+		ir.st.SetFlag(USERFLAG_HASSESSION)
+
+		updates := map[string]interface{}{
+			"CurrentState": StateNone,
+		}
+
+		updateState(phoneNumber, updates)
+	} else if !sessionFile {
+		ir.st.ResetFlag(USERFLAG_HASSESSION)
+
+		path.Join(scriptDir, phoneNumber+"_userstate.json")
+
+		saveUserState(phoneNumber, state)
+
+		return emptyResult, err
+	}
+
+	return resource.Result{
+		Content: "",
+	}, err
+}
+
+func sessionExists(phoneNumber string) (bool, error) {
+	filePath := path.Join(scriptDir, phoneNumber+"_userstate.json")
+	if _, err := os.Stat(filePath); err == nil {
+		return true, nil
+	} else if os.IsNotExist(err) {
+		return false, nil
+	} else {
+		return false, err
+	}
+}
+
 func (ir *accountResource) accept_account(ctx context.Context, sym string, input []byte) (resource.Result, error) {
 	var err error
-	state := &UserState{CurrentState: StateNone}
+	updates := map[string]interface{}{
+		"CurrentState": StateAccountAccepted,
+	}
 
-	state.CurrentState = StateAccountAccepted
-
-	saveUserState(state)
+	updateState(globalSessionId, updates)
 
 	return emptyResult, err
 }
 
 func (ir *accountResource) accept_terms(ctx context.Context, sym string, input []byte) (resource.Result, error) {
 	var err error
-	state := &UserState{CurrentState: StateAccountAccepted}
-
-	state.CurrentState = StateTermsAccepted
-
-	fmt.Println("Account creation is in progress, please wait...")
 
 	accountResp, err := createAccount()
 
@@ -114,19 +220,20 @@ func (ir *accountResource) accept_terms(ctx context.Context, sym string, input [
 		return emptyResult, err
 	}
 
-	state.PublicKey = accountResp.Result.PublicKey
-	state.TrackingId = accountResp.Result.TrackingId
-	state.CustodialId = accountResp.Result.CustodialId.String()
+	updates := map[string]interface{}{
+		"CurrentState": StateAccountCreated,
+		"PublicKey":    accountResp.Result.PublicKey,
+		"TrackingId":   accountResp.Result.TrackingId,
+		"CustodialId":  accountResp.Result.CustodialId.String(),
+	}
 
-	state.CurrentState = StateAccountCreated
-
-	saveUserState(state)
+	updateState(globalSessionId, updates)
 
 	return emptyResult, err
 }
 
 func (ir *accountResource) checkIdentifier(ctx context.Context, sym string, input []byte) (resource.Result, error) {
-	state, err := loadUserState()
+	state, err := loadUserState(globalSessionId)
 	if err != nil {
 		return emptyResult, err
 	}
@@ -137,8 +244,39 @@ func (ir *accountResource) checkIdentifier(ctx context.Context, sym string, inpu
 	return r, nil
 }
 
+func (ir *accountResource) check_account_status(ctx context.Context, sym string, input []byte) (resource.Result, error) {
+	state, err := loadUserState(globalSessionId)
+
+	if err != nil {
+		return emptyResult, err
+	}
+
+	status, err := checkAccountStatus(state.TrackingId)
+	if err != nil {
+		fmt.Println("Error checking account status:", err)
+		return emptyResult, err
+	}
+
+	updates := map[string]interface{}{
+		"AccountStatus":  status,
+	}
+
+	updateState(globalSessionId, updates)
+
+	if status == "SUCCESS" {
+		ir.st.SetFlag(USERFLAG_ACCOUNTSUCCESS)
+	} else if status == "REVERTED" {
+		ir.st.ResetFlag(USERFLAG_ACCOUNTSUCCESS)
+		return emptyResult, err
+	}
+
+	return resource.Result{
+		Content: "",
+	}, err
+}
+
 func createAccount() (*accountResponse, error) {
-	resp, err := http.Post("https://custodial.sarafu.africa/api/account/create", "application/json", nil)
+	resp, err := http.Post(createAccountURL, "application/json", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -158,6 +296,29 @@ func createAccount() (*accountResponse, error) {
 	return &accountResp, nil
 }
 
+func checkAccountStatus(trackingId string) (string, error) {
+	resp, err := http.Get(trackStatusURL + trackingId)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+	var trackResp trackStatusResponse
+	err = json.Unmarshal(body, &trackResp)
+	if err != nil {
+		return "", err
+	}
+
+	status := trackResp.Result.Transaction.Status
+
+	return status, nil
+}
+
 func main() {
 	var dir string
 	var root string
@@ -172,16 +333,19 @@ func main() {
 	st := state.NewState(1)
 	rsf := resource.NewFsResource(scriptDir)
 	rs := accountResource{rsf, &st}
+	rs.AddLocalFunc("check_session", rs.check_session)
 	rs.AddLocalFunc("accept_account", rs.accept_account)
 	rs.AddLocalFunc("accept_terms", rs.accept_terms)
 	rs.AddLocalFunc("check_identifier", rs.checkIdentifier)
+	rs.AddLocalFunc("check_account_status", rs.check_account_status)
 	ca := cache.NewCache()
 	cfg := engine.Config{
 		Root:       "root",
-		SessionId:  sessionId,
+		SessionId:  globalSessionId,
 		OutputSize: uint32(size),
 	}
 	ctx := context.Background()
+	ctx = context.WithValue(ctx, "SessionId", globalSessionId)
 	en := engine.NewEngine(ctx, cfg, &st, rs, ca)
 	var err error
 	_, err = en.Init(ctx)
