@@ -209,8 +209,6 @@ func (ir *accountResource) accept_account(ctx context.Context, sym string, input
 func (ir *accountResource) accept_terms(ctx context.Context, sym string, input []byte) (resource.Result, error) {
 	var err error
 
-	fmt.Println("Account creation is in progress, please wait...")
-
 	accountResp, err := createAccount()
 
 	if err != nil {
