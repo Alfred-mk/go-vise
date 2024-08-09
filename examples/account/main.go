@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"io"
 	"time"
-
-	// "log"
 	"net/http"
 	"os"
 	"path"
