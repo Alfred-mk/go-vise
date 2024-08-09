@@ -1,4 +1,4 @@
 LOAD check_identifier 0
 MAP check_identifier
+MOUT quit 0
 HALT
-MOUT abort 0

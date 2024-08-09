@@ -265,11 +265,13 @@ func (ir *accountResource) check_account_status(ctx context.Context, sym string,
 	state, err := loadUserState(sessionId)
 
 	if err != nil {
+		ir.st.ResetFlag(USERFLAG_ACCOUNTSUCCESS)
 		return emptyResult, err
 	}
 
 	status, err := checkAccountStatus(state.TrackingId)
 	if err != nil {
+		ir.st.ResetFlag(USERFLAG_ACCOUNTSUCCESS)
 		fmt.Println("Error checking account status:", err)
 		return emptyResult, err
 	}
@@ -283,7 +285,7 @@ func (ir *accountResource) check_account_status(ctx context.Context, sym string,
 		}
 
 		updateState(sessionId, updates)
-	} else if status == "REVERTED" {
+	} else {
 		ir.st.ResetFlag(USERFLAG_ACCOUNTSUCCESS)
 		updates := map[string]interface{}{
 			"AccountStatus": status,

@@ -2,4 +2,6 @@ LOAD check_session 8
 CATCH accept_account 8 0
 LOAD check_account_creation 8
 CATCH terms 8 0
-MOVE account_creation
+LOAD check_account_status 0
+CATCH account_pending 8 0
+MOVE profile
