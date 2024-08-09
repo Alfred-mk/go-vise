@@ -1,8 +1,5 @@
-LOAD check_session 0
-MAP check_session
-CATCH phone_number 8 0
-MOUT yes 0
-MOUT no 1
+LOAD check_session 8
 HALT
-INCMP terms 0
-INCMP abort 1
+RELOAD check_session
+CATCH accept_account 8 0
+MOVE account_creation
