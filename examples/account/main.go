@@ -6,10 +6,10 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"time"
 	"net/http"
 	"os"
 	"path"
+	"time"
 
 	"git.defalsify.org/vise.git/cache"
 	"git.defalsify.org/vise.git/engine"
@@ -23,6 +23,7 @@ var globalSessionId string
 const (
 	USERFLAG_HASACCEPTED    = state.FLAG_USERSTART
 	USERFLAG_HASSESSION     = state.FLAG_USERSTART
+	USERFLAG_HASACCOUNT     = state.FLAG_USERSTART
 	USERFLAG_ACCOUNTSUCCESS = state.FLAG_USERSTART
 	createAccountURL        = "https://custodial.sarafu.africa/api/account/create"
 	trackStatusURL          = "https://custodial.sarafu.africa/api/track/"
@@ -139,7 +140,7 @@ func updateState(phoneNumber string, updates map[string]interface{}) error {
 			if v, ok := value.(string); ok {
 				userState.AccountStatus = v
 			}
-		
+
 		default:
 			return fmt.Errorf("unknown field: %s", key)
 		}
@@ -153,8 +154,8 @@ func (ir *accountResource) check_session(ctx context.Context, sym string, input 
 	state := &UserState{}
 	var phoneNumber = string(input)
 
-    globalSessionId = phoneNumber
-	
+	globalSessionId = phoneNumber
+
 	sessionFile, err := sessionExists(phoneNumber)
 	if err != nil {
 		return emptyResult, err
@@ -210,22 +211,29 @@ func (ir *accountResource) accept_account(ctx context.Context, sym string, input
 
 func (ir *accountResource) accept_terms(ctx context.Context, sym string, input []byte) (resource.Result, error) {
 	var err error
-
-	accountResp, err := createAccount()
+	state, err := loadUserState(globalSessionId)
 
 	if err != nil {
-		fmt.Println("Failed to create account:", err)
 		return emptyResult, err
 	}
 
-	updates := map[string]interface{}{
-		"CurrentState": StateAccountCreated,
-		"PublicKey":    accountResp.Result.PublicKey,
-		"TrackingId":   accountResp.Result.TrackingId,
-		"CustodialId":  accountResp.Result.CustodialId.String(),
-	}
+	if state.TrackingId == "" {
+		accountResp, err := createAccount()
 
-	updateState(globalSessionId, updates)
+		if err != nil {
+			fmt.Println("Failed to create account:", err)
+			return emptyResult, err
+		}
+
+		updates := map[string]interface{}{
+			"CurrentState": StateAccountCreated,
+			"PublicKey":    accountResp.Result.PublicKey,
+			"TrackingId":   accountResp.Result.TrackingId,
+			"CustodialId":  accountResp.Result.CustodialId.String(),
+		}
+
+		updateState(globalSessionId, updates)
+	}
 
 	return emptyResult, err
 }
@@ -242,6 +250,25 @@ func (ir *accountResource) checkIdentifier(ctx context.Context, sym string, inpu
 	return r, nil
 }
 
+func (ir *accountResource) check_account_creation(ctx context.Context, sym string, input []byte) (resource.Result, error) {
+	state, err := loadUserState(globalSessionId)
+
+	if err != nil {
+		return emptyResult, err
+	}
+
+	if state.TrackingId == "" {
+		ir.st.ResetFlag(USERFLAG_HASACCOUNT)
+		return emptyResult, err
+	}
+
+	ir.st.SetFlag(USERFLAG_HASACCOUNT)
+
+	return resource.Result{
+		Content: "",
+	}, err
+}
+
 func (ir *accountResource) check_account_status(ctx context.Context, sym string, input []byte) (resource.Result, error) {
 	state, err := loadUserState(globalSessionId)
 
@@ -256,7 +283,7 @@ func (ir *accountResource) check_account_status(ctx context.Context, sym string,
 	}
 
 	updates := map[string]interface{}{
-		"AccountStatus":  status,
+		"AccountStatus": status,
 	}
 
 	updateState(globalSessionId, updates)
@@ -335,6 +362,7 @@ func main() {
 	rs.AddLocalFunc("accept_account", rs.accept_account)
 	rs.AddLocalFunc("accept_terms", rs.accept_terms)
 	rs.AddLocalFunc("check_identifier", rs.checkIdentifier)
+	rs.AddLocalFunc("check_account_creation", rs.check_account_creation)
 	rs.AddLocalFunc("check_account_status", rs.check_account_status)
 	ca := cache.NewCache()
 	cfg := engine.Config{

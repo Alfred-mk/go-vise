@@ -1,4 +1,6 @@
 HALT
 LOAD check_session 8
 CATCH accept_account 8 0
+LOAD check_account_creation 8
+CATCH terms 8 0
 MOVE account_creation
