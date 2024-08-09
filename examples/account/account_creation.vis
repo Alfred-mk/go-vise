@@ -1,6 +1,5 @@
 LOAD accept_terms 0
 LOAD check_account_status 8
-MOUT recheck 0
 HALT
 RELOAD check_account_status
 CATCH . 8 0
