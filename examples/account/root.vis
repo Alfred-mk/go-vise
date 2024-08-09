@@ -1,5 +1,4 @@
-LOAD check_session 8
 HALT
-RELOAD check_session
+LOAD check_session 8
 CATCH accept_account 8 0
 MOVE account_creation

@@ -20,6 +20,8 @@ import (
 	testdataloader "github.com/peteole/testdata-loader"
 )
 
+var globalSessionId string
+
 const (
 	USERFLAG_HASACCEPTED    = state.FLAG_USERSTART
 	USERFLAG_HASSESSION     = state.FLAG_USERSTART
@@ -153,6 +155,8 @@ func (ir *accountResource) check_session(ctx context.Context, sym string, input 
 	state := &UserState{}
 	var phoneNumber = string(input)
 
+    globalSessionId = phoneNumber
+	
 	sessionFile, err := sessionExists(phoneNumber)
 	if err != nil {
 		return emptyResult, err
@@ -201,7 +205,7 @@ func (ir *accountResource) accept_account(ctx context.Context, sym string, input
 		"CurrentState": StateAccountAccepted,
 	}
 
-	updateState("0724942097", updates) // change with the current number?
+	updateState(globalSessionId, updates)
 
 	return emptyResult, err
 }
@@ -223,13 +227,13 @@ func (ir *accountResource) accept_terms(ctx context.Context, sym string, input [
 		"CustodialId":  accountResp.Result.CustodialId.String(),
 	}
 
-	updateState("0724942097", updates)
+	updateState(globalSessionId, updates)
 
 	return emptyResult, err
 }
 
 func (ir *accountResource) checkIdentifier(ctx context.Context, sym string, input []byte) (resource.Result, error) {
-	state, err := loadUserState("0724942097")
+	state, err := loadUserState(globalSessionId)
 	if err != nil {
 		return emptyResult, err
 	}
@@ -241,7 +245,7 @@ func (ir *accountResource) checkIdentifier(ctx context.Context, sym string, inpu
 }
 
 func (ir *accountResource) check_account_status(ctx context.Context, sym string, input []byte) (resource.Result, error) {
-	state, err := loadUserState("0724942097")
+	state, err := loadUserState(globalSessionId)
 
 	if err != nil {
 		return emptyResult, err
@@ -257,7 +261,7 @@ func (ir *accountResource) check_account_status(ctx context.Context, sym string,
 		"AccountStatus":  status,
 	}
 
-	updateState("0724942097", updates)
+	updateState(globalSessionId, updates)
 
 	if status == "SUCCESS" {
 		ir.st.SetFlag(USERFLAG_ACCOUNTSUCCESS)
@@ -312,8 +316,6 @@ func checkAccountStatus(trackingId string) (string, error) {
 
 	status := trackResp.Result.Transaction.Status
 
-	fmt.Println(status)
-
 	return status, nil
 }
 
@@ -339,10 +341,11 @@ func main() {
 	ca := cache.NewCache()
 	cfg := engine.Config{
 		Root:       "root",
-		SessionId:  sessionId,
+		SessionId:  globalSessionId,
 		OutputSize: uint32(size),
 	}
 	ctx := context.Background()
+	ctx = context.WithValue(ctx, "SessionId", globalSessionId)
 	en := engine.NewEngine(ctx, cfg, &st, rs, ca)
 	var err error
 	_, err = en.Init(ctx)
