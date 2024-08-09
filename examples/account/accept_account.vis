@@ -1,5 +1,0 @@
-MOUT yes 0
-MOUT no 1
-HALT
-INCMP terms 0
-INCMP abort 1
