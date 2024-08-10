@@ -1,3 +1,2 @@
-LOAD check_account_creation 8
-CATCH terms 8 0
+RELOAD check_account_status
 HALT

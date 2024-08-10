@@ -1,5 +1,6 @@
-LOAD check_session 8
+CATCH profile 9 1
 CATCH terms 8 0
 LOAD check_account_status 0
-CATCH account_pending 8 0
-MOVE profile
+RELOAD check_account_status
+CATCH account_pending 11 1
+HALT

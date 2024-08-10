@@ -13,27 +13,23 @@ import (
 
 	"git.defalsify.org/vise.git/cache"
 	"git.defalsify.org/vise.git/engine"
+	"git.defalsify.org/vise.git/persist"
 	"git.defalsify.org/vise.git/resource"
 	"git.defalsify.org/vise.git/state"
 	testdataloader "github.com/peteole/testdata-loader"
 )
 
 const (
-	USERFLAG_HASACCEPTED    = state.FLAG_USERSTART
-	USERFLAG_HASSESSION     = state.FLAG_USERSTART
-	USERFLAG_HASACCOUNT     = state.FLAG_USERSTART
-	USERFLAG_ACCOUNTSUCCESS = state.FLAG_USERSTART
-	createAccountURL        = "https://custodial.sarafu.africa/api/account/create"
-	trackStatusURL          = "https://custodial.sarafu.africa/api/track/"
+	createAccountURL = "https://custodial.sarafu.africa/api/account/create"
+	trackStatusURL   = "https://custodial.sarafu.africa/api/track/"
 )
 
 const (
-	StateNone = iota
-	StateAccountAccepted
-	StateTermsOffered
-	StateTermsAccepted
-	StateAccountCreationPending
-	StateAccountCreated
+	USERFLAG_NONE = iota + state.FLAG_USERSTART
+	USERFLAG_ACCOUNT_CREATED
+	USERFLAG_TERMS_OFFERED
+	USERFLAG_ACCOUNT_PENDING
+	USERFLAG_TERMS_ACCEPTED
 )
 
 type accountResponse struct {
@@ -58,12 +54,9 @@ type trackStatusResponse struct {
 	} `json:"result"`
 }
 
-type UserState struct {
-	CurrentState  int
-	PublicKey     string
-	CustodialId   string
-	TrackingId    string
-	AccountStatus string
+type accountResource struct {
+	path  string
+	state *state.State
 }
 
 var (
@@ -72,233 +65,114 @@ var (
 	emptyResult = resource.Result{}
 )
 
-type accountResource struct {
-	*resource.FsResource
-	st *state.State
-}
-
-func saveUserState(sessionId string, state *UserState) error {
-	data, err := json.Marshal(state)
+func (ar *accountResource) accept_terms(ctx context.Context, sym string, input []byte) (resource.Result, error) {
+	res := resource.Result{}
+	st := ar.state
+	fp := ar.path + "_data"
+	f, err := os.OpenFile(fp, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
-		return err
+		return res, err
 	}
+	f.Close()
 
-	fp := path.Join(scriptDir, sessionId+"_userstate.json")
-	err = os.WriteFile(fp, data, 0600)
+	accountResp, err := createAccount()
+
 	if err != nil {
-		return err
-	}
-	return nil
-}
-
-func loadUserState(sessionId string) (*UserState, error) {
-	fp := path.Join(scriptDir, sessionId+"_userstate.json")
-	data, err := os.ReadFile(fp)
-	if err != nil {
-		return nil, err
-	}
-
-	var state UserState
-	err = json.Unmarshal(data, &state)
-	if err != nil {
-		return nil, err
-	}
-
-	return &state, nil
-}
-
-func updateState(sessionId string, updates map[string]interface{}) error {
-	userState, err := loadUserState(sessionId)
-	if err != nil {
-		return err
-	}
-
-	for key, value := range updates {
-		switch key {
-		case "CurrentState":
-			if v, ok := value.(int); ok {
-				userState.CurrentState = v
-			}
-		case "PublicKey":
-			if v, ok := value.(string); ok {
-				userState.PublicKey = v
-			}
-		case "CustodialId":
-			if v, ok := value.(string); ok {
-				userState.CustodialId = v
-			}
-		case "TrackingId":
-			if v, ok := value.(string); ok {
-				userState.TrackingId = v
-			}
-		case "AccountStatus":
-			if v, ok := value.(string); ok {
-				userState.AccountStatus = v
-			}
-		default:
-			return fmt.Errorf("unknown field: %s", key)
-		}
-	}
-
-	return saveUserState(sessionId, userState)
-}
-
-func (ir *accountResource) check_session(ctx context.Context, sym string, input []byte) (resource.Result, error) {
-	var err error
-	state := &UserState{}
-
-	sessionId := ctx.Value("SessionId").(string)
-
-	sessionFile, err := sessionExists(sessionId)
-	if err != nil {
+		fmt.Println("Failed to create account:", err)
 		return emptyResult, err
 	}
 
-	state.CurrentState = StateNone
-
-	if sessionFile {
-		ir.st.SetFlag(USERFLAG_HASSESSION)
-	} else if !sessionFile {
-		ir.st.ResetFlag(USERFLAG_HASSESSION)
-
-		path.Join(scriptDir, sessionId+"_userstate.json")
-
-		saveUserState(sessionId, state)
-
-		return emptyResult, err
+	accountData := map[string]string{
+		"TrackingId":  accountResp.Result.TrackingId,
+		"PublicKey":   accountResp.Result.PublicKey,
+		"CustodialId": accountResp.Result.CustodialId.String(),
+		"Status":      "PENDING",
 	}
 
-	return resource.Result{
-		Content: "",
-	}, err
-}
-
-func sessionExists(sessionId string) (bool, error) {
-	filePath := path.Join(scriptDir, sessionId+"_userstate.json")
-	if _, err := os.Stat(filePath); err == nil {
-		return true, nil
-	} else if os.IsNotExist(err) {
-		return false, nil
-	} else {
-		return false, err
-	}
-}
-
-func (ir *accountResource) accept_account(ctx context.Context, sym string, input []byte) (resource.Result, error) {
-	var err error
-	sessionId := ctx.Value("SessionId").(string)
-	updates := map[string]interface{}{
-		"CurrentState": StateAccountAccepted,
+	jsonData, err := json.Marshal(accountData)
+	if err != nil {
+		return res, err
 	}
 
-	updateState(sessionId, updates)
+	err = os.WriteFile(fp, jsonData, 0644)
+	if err != nil {
+		return res, err
+	}
 
-	return emptyResult, err
+	st.SetFlag(USERFLAG_NONE)
+	st.SetFlag(USERFLAG_ACCOUNT_PENDING)
+
+	return res, err
 }
 
-func (ir *accountResource) accept_terms(ctx context.Context, sym string, input []byte) (resource.Result, error) {
-	var err error
-	sessionId := ctx.Value("SessionId").(string)
-	state, err := loadUserState(sessionId)
+func (ar *accountResource) checkIdentifier(ctx context.Context, sym string, input []byte) (resource.Result, error) {
+	res := resource.Result{}
+	st := ar.state
+	fp := ar.path + "_data"
+
+	st.ResetFlag(USERFLAG_ACCOUNT_PENDING)
+	st.SetFlag(USERFLAG_ACCOUNT_CREATED)
+
+	jsonData, err := os.ReadFile(fp)
+	if err != nil {
+		return res, err
+	}
+
+	var accountData map[string]string
+	err = json.Unmarshal(jsonData, &accountData)
+	if err != nil {
+		return res, err
+	}
+
+	res.Content = accountData["PublicKey"]
+
+	return res, nil
+}
+
+func (ar *accountResource) check_account_status(ctx context.Context, sym string, input []byte) (resource.Result, error) {
+	res := resource.Result{}
+	st := ar.state
+	fp := ar.path + "_data"
+
+	jsonData, err := os.ReadFile(fp)
+	if err != nil {
+		return res, err
+	}
+
+	var accountData map[string]string
+	err = json.Unmarshal(jsonData, &accountData)
+	if err != nil {
+		return res, err
+	}
+
+	status, err := checkAccountStatus(accountData["TrackingId"])
 
 	if err != nil {
-		return emptyResult, err
-	}
-
-	if state.TrackingId == "" {
-		accountResp, err := createAccount()
-
-		if err != nil {
-			fmt.Println("Failed to create account:", err)
-			return emptyResult, err
-		}
-
-		updates := map[string]interface{}{
-			"CurrentState": StateAccountCreationPending,
-			"PublicKey":    accountResp.Result.PublicKey,
-			"TrackingId":   accountResp.Result.TrackingId,
-			"CustodialId":  accountResp.Result.CustodialId.String(),
-		}
-
-		updateState(sessionId, updates)
-	}
-
-	return emptyResult, err
-}
-
-func (ir *accountResource) checkIdentifier(ctx context.Context, sym string, input []byte) (resource.Result, error) {
-	sessionId := ctx.Value("SessionId").(string)
-
-	state, err := loadUserState(sessionId)
-	if err != nil {
-		return emptyResult, err
-	}
-
-	r := resource.Result{
-		Content: fmt.Sprintf(state.PublicKey),
-	}
-	return r, nil
-}
-
-func (ir *accountResource) check_account_creation(ctx context.Context, sym string, input []byte) (resource.Result, error) {
-	sessionId := ctx.Value("SessionId").(string)
-	state, err := loadUserState(sessionId)
-
-	if err != nil {
-		return emptyResult, err
-	}
-
-	if state.TrackingId == "" {
-		ir.st.ResetFlag(USERFLAG_HASACCOUNT)
-		return emptyResult, err
-	}
-
-	ir.st.SetFlag(USERFLAG_HASACCOUNT)
-
-	return resource.Result{
-		Content: "",
-	}, err
-}
-
-func (ir *accountResource) check_account_status(ctx context.Context, sym string, input []byte) (resource.Result, error) {
-	sessionId := ctx.Value("SessionId").(string)
-	state, err := loadUserState(sessionId)
-
-	if err != nil {
-		ir.st.ResetFlag(USERFLAG_ACCOUNTSUCCESS)
-		return emptyResult, err
-	}
-
-	status, err := checkAccountStatus(state.TrackingId)
-	if err != nil {
-		ir.st.ResetFlag(USERFLAG_ACCOUNTSUCCESS)
 		fmt.Println("Error checking account status:", err)
-		return emptyResult, err
+		return res, nil
 	}
 
-	if status == "SUCCESS" {
-		ir.st.SetFlag(USERFLAG_ACCOUNTSUCCESS)
+	accountData["Status"] = status
 
-		updates := map[string]interface{}{
-			"AccountStatus": status,
-			"CurrentState":  StateAccountCreated,
-		}
-
-		updateState(sessionId, updates)
+	if status == "SUCCESS" || status == "REVERTED" { // will be changed once gas fees are added
+		st.ResetFlag(USERFLAG_ACCOUNT_PENDING)
+		st.SetFlag(USERFLAG_ACCOUNT_CREATED)
 	} else {
-		ir.st.ResetFlag(USERFLAG_ACCOUNTSUCCESS)
-		updates := map[string]interface{}{
-			"AccountStatus": status,
-			"CurrentState":  StateAccountCreationPending,
-		}
-
-		updateState(sessionId, updates)
-		return emptyResult, err
+		st.ResetFlag(USERFLAG_ACCOUNT_CREATED)
+		st.SetFlag(USERFLAG_ACCOUNT_PENDING)
 	}
 
-	return resource.Result{
-		Content: "",
-	}, err
+	updatedJsonData, err := json.Marshal(accountData)
+	if err != nil {
+		return res, err
+	}
+
+	err = os.WriteFile(fp, updatedJsonData, 0644)
+	if err != nil {
+		return res, err
+	}
+
+	return res, nil
 }
 
 func createAccount() (*accountResponse, error) {
@@ -346,7 +220,6 @@ func checkAccountStatus(trackingId string) (string, error) {
 }
 
 func main() {
-	var dir string
 	var root string
 	var size uint
 	var sessionId string
@@ -354,34 +227,64 @@ func main() {
 	flag.StringVar(&root, "root", "root", "entry point symbol")
 	flag.StringVar(&sessionId, "session-id", "default", "session id")
 	flag.Parse()
-	fmt.Fprintf(os.Stderr, "starting session at symbol '%s' using resource dir: %s\n", root, dir)
+	fmt.Fprintf(os.Stderr, "starting session at symbol '%s' using resource dir: %s\n", root, scriptDir)
 
-	st := state.NewState(1)
-	rsf := resource.NewFsResource(scriptDir)
-	rs := accountResource{rsf, &st}
-	rs.AddLocalFunc("check_session", rs.check_session)
-	rs.AddLocalFunc("accept_account", rs.accept_account)
-	rs.AddLocalFunc("accept_terms", rs.accept_terms)
-	rs.AddLocalFunc("check_identifier", rs.checkIdentifier)
-	rs.AddLocalFunc("check_account_creation", rs.check_account_creation)
-	rs.AddLocalFunc("check_account_status", rs.check_account_status)
+	ctx := context.Background()
+	st := state.NewState(6)
+	rfs := resource.NewFsResource(scriptDir)
 	ca := cache.NewCache()
 	cfg := engine.Config{
-		Root:       "root",
-		SessionId:  sessionId,
-		OutputSize: uint32(size),
-	}
-	ctx := context.Background()
-	ctx = context.WithValue(ctx, "SessionId", sessionId)
-	en := engine.NewEngine(ctx, cfg, &st, rs, ca)
-	var err error
-	_, err = en.Init(ctx)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "engine init fail: %v\n", err)
-		os.Exit(1)
+		Root:      "root",
+		SessionId: sessionId,
 	}
 
-	err = engine.Loop(ctx, &en, os.Stdin, os.Stdout)
+	dp := path.Join(scriptDir, ".state")
+	err := os.MkdirAll(dp, 0700)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "state dir create exited with error: %v\n", err)
+		os.Exit(1)
+	}
+	pr := persist.NewFsPersister(dp)
+	en, err := engine.NewPersistedEngine(ctx, cfg, pr, rfs)
+	if err != nil {
+		pr = pr.WithContent(&st, ca)
+		err = pr.Save(cfg.SessionId)
+		en, err = engine.NewPersistedEngine(ctx, cfg, pr, rfs)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "engine create exited with error: %v\n", err)
+			os.Exit(1)
+		}
+	}
+
+	fp := path.Join(dp, sessionId)
+	rs := accountResource{
+		path:  fp,
+		state: &st,
+	}
+	rfs.AddLocalFunc("accept_terms", rs.accept_terms)
+	rfs.AddLocalFunc("check_identifier", rs.checkIdentifier)
+	rfs.AddLocalFunc("check_account_status", rs.check_account_status)
+
+	cont, err := en.Init(ctx)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "engine init exited with error: %v\n", err)
+		os.Exit(1)
+	}
+	if !cont {
+		_, err = en.WriteResult(ctx, os.Stdout)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "dead init write error: %v\n", err)
+			os.Exit(1)
+		}
+		err = en.Finish()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "engine finish error: %v\n", err)
+			os.Exit(1)
+		}
+		os.Stdout.Write([]byte{0x0a})
+		os.Exit(0)
+	}
+	err = engine.Loop(ctx, en, os.Stdin, os.Stdout)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "loop exited with error: %v\n", err)
 		os.Exit(1)
