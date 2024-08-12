@@ -1,2 +1,2 @@
-LOAD accept_terms 0
+LOAD create_account 0
 HALT

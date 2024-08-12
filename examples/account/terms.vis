@@ -2,3 +2,4 @@ MOUT yes 0
 MOUT no 1
 HALT
 INCMP account_creation 0
+INCMP _ *

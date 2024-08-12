@@ -1,2 +1,3 @@
 RELOAD check_account_status
+CATCH profile 10 1
 HALT

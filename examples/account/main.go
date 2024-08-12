@@ -25,11 +25,9 @@ const (
 )
 
 const (
-	USERFLAG_NONE = iota + state.FLAG_USERSTART
-	USERFLAG_ACCOUNT_CREATED
-	USERFLAG_TERMS_OFFERED
+	USERFLAG_ACCOUNT_CREATED = iota + state.FLAG_USERSTART
 	USERFLAG_ACCOUNT_PENDING
-	USERFLAG_TERMS_ACCEPTED
+	USERFLAG_ACCOUNT_SUCCESS
 )
 
 type accountResponse struct {
@@ -65,9 +63,8 @@ var (
 	emptyResult = resource.Result{}
 )
 
-func (ar *accountResource) accept_terms(ctx context.Context, sym string, input []byte) (resource.Result, error) {
+func (ar *accountResource) create_account(ctx context.Context, sym string, input []byte) (resource.Result, error) {
 	res := resource.Result{}
-	st := ar.state
 	fp := ar.path + "_data"
 	f, err := os.OpenFile(fp, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
@@ -99,20 +96,15 @@ func (ar *accountResource) accept_terms(ctx context.Context, sym string, input [
 		return res, err
 	}
 
-	st.SetFlag(USERFLAG_NONE)
-	st.SetFlag(USERFLAG_ACCOUNT_PENDING)
-
+	res.FlagSet = []uint32{USERFLAG_ACCOUNT_CREATED}
 	return res, err
 }
 
 func (ar *accountResource) checkIdentifier(ctx context.Context, sym string, input []byte) (resource.Result, error) {
 	res := resource.Result{}
-	st := ar.state
 	fp := ar.path + "_data"
 
-	st.ResetFlag(USERFLAG_ACCOUNT_PENDING)
-	st.SetFlag(USERFLAG_ACCOUNT_CREATED)
-
+	
 	jsonData, err := os.ReadFile(fp)
 	if err != nil {
 		return res, err
@@ -131,7 +123,6 @@ func (ar *accountResource) checkIdentifier(ctx context.Context, sym string, inpu
 
 func (ar *accountResource) check_account_status(ctx context.Context, sym string, input []byte) (resource.Result, error) {
 	res := resource.Result{}
-	st := ar.state
 	fp := ar.path + "_data"
 
 	jsonData, err := os.ReadFile(fp)
@@ -154,12 +145,12 @@ func (ar *accountResource) check_account_status(ctx context.Context, sym string,
 
 	accountData["Status"] = status
 
-	if status == "SUCCESS" || status == "REVERTED" { // will be changed once gas fees are added
-		st.ResetFlag(USERFLAG_ACCOUNT_PENDING)
-		st.SetFlag(USERFLAG_ACCOUNT_CREATED)
+	if status == "SUCCESS" {
+		res.FlagSet = []uint32{USERFLAG_ACCOUNT_SUCCESS}
+		res.FlagReset = []uint32{USERFLAG_ACCOUNT_PENDING}
 	} else {
-		st.ResetFlag(USERFLAG_ACCOUNT_CREATED)
-		st.SetFlag(USERFLAG_ACCOUNT_PENDING)
+		res.FlagSet = []uint32{USERFLAG_ACCOUNT_PENDING}
+		res.FlagReset = []uint32{USERFLAG_ACCOUNT_SUCCESS}
 	}
 
 	updatedJsonData, err := json.Marshal(accountData)
@@ -230,7 +221,7 @@ func main() {
 	fmt.Fprintf(os.Stderr, "starting session at symbol '%s' using resource dir: %s\n", root, scriptDir)
 
 	ctx := context.Background()
-	st := state.NewState(6)
+	st := state.NewState(3)
 	rfs := resource.NewFsResource(scriptDir)
 	ca := cache.NewCache()
 	cfg := engine.Config{
@@ -261,7 +252,7 @@ func main() {
 		path:  fp,
 		state: &st,
 	}
-	rfs.AddLocalFunc("accept_terms", rs.accept_terms)
+	rfs.AddLocalFunc("create_account", rs.create_account)
 	rfs.AddLocalFunc("check_identifier", rs.checkIdentifier)
 	rfs.AddLocalFunc("check_account_status", rs.check_account_status)
 
